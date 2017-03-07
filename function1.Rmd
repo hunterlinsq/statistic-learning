@@ -1,0 +1,211 @@
+---
+title: "vary-coefficient"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+    includes:
+          in_header: header.tex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+以下是会调用到但是不用发布的函数
+```{r}
+beta <- function(x,z,y,p,nknots,m,lambda,sigma_error=diag(1,length(y)),Dm){
+        n <- length(y)
+        df1 <- nknots+p
+        Psi <- bs(z,df=df1,degree = p)
+        Psi <- as.matrix(Psi[1:n,1:df1])
+        x1 <- diag(x)
+        if(lambda!=0){
+                solve(t(Psi) %*% x1 %*% solve(sigma_error) %*% x1 %*% Psi +
+                      (1/lambda)*(nknots^(2*m-1))*t(Dm)%*%(Dm)) %*%t(Psi) %*% x1 %*% solve(sigma_error) %*% y
+        }else
+                solve(t(Psi) %*% x1 %*% solve(sigma_error) %*% x1 %*% Psi) %*%
+                      t(Psi) %*% x1 %*% solve(sigma_error) %*% y
+}
+
+
+valcv <- function(x,z,y,p,nknots,m,lambda,sigma_error=diag(1,length(y)),Dm){
+        df1 <- nknots+p
+        fold <- 5
+        set.seed(1234)
+        k = sample(rep(1:fold,length=n))
+        fit1 <- rep(NA,n)
+        for (j in 1:fold){
+                testset = (1:n)[k==j]
+                coef <- beta(x=x[-testset],z=z[-testset],y=y[-testset],
+                             p=p,nknots = nknots,m=m,lambda=lambda,Dm=Dm)
+                l <- length(x[testset])
+                NPsi <- bs(z[testset],df=df1,degree = p)
+                Npsi <- as.matrix(NPsi[1:l,1:df1])
+                Ntheta <- Npsi %*% coef
+                fit1[testset] <- diag(x[testset]) %*% Ntheta
+        }
+        mse <- mean((y-fit1)^2)
+        return(mse)
+}
+
+```
+
+
+
+## R Markdown
+假设$y_t=x_t \theta(z_t)= x_t \cdot (z_t-0.25)^2+u_t$,其中$x_t=x_{t-1}+v_t$即$x_t$非平稳,$y_t$和$z_t$平稳，$u_t,v_t \sim N(0,1)$
+
+也就是系数$\theta$是可变的，利用B样条估计各个变系数
+
+估计系数,因为目前拟合结果是随lambda单调的，所以先给定lambda
+
+参数说明：
+y：因变量；x：自变量；z：辅助变量               
+p：B样条的次数；nknots：选取的节点个数                    
+m：惩罚项阶数；lambda：惩罚项系数                             
+sigma_error：扰动项u的协差阵            
+```{r}
+
+require(splines)
+val <- function(x,z,y,p,nknots,m=2,lambda=NULL,cv=FALSE,sigma_error=diag(1,length(y))){
+        if(any(is.na(x)) | any(is.na(z)) | any(is.na(y)))
+                stop("NAs in data!")
+        n <- length(y)
+        df1 <- nknots+p
+        Psi <- bs(z,df=df1,degree = p)
+        Psi <- as.matrix(Psi[1:n,1:df1])
+        D <- diag(1,df1)
+        D[which(D==1)[-df1]+1] <- -1
+        Dm <- D
+        for(i in 1:(m-1)){Dm <- D %*% Dm}
+        Dm <- Dm[-(1:m),]
+        x1 <- diag(x)
+        if(is.null(lambda)){
+                lamb <- seq(0,10,0.01)
+                mse <-rep(NA,length(lamb))
+                for(i in 1:length(lamb)){
+                mse[i] <- valcv(x=x,z=z,y=y,p=p,nknots=nknots,m=m,
+                                lambda=lamb[i],sigma_error=diag(1,length(y)),Dm=Dm)
+                }
+                lambda<- lamb[which(mse==min(mse))]
+        }
+        if(lambda==0){
+                Q<- solve(t(Psi) %*% x1 %*% solve(sigma_error) %*% x1 %*% Psi)
+        }else{
+                Q<- solve(t(Psi) %*% x1 %*% solve(sigma_error) %*% x1 %*% Psi +
+                        (1/lambda)*(nknots^(2*m-1))*t(Dm)%*%(Dm))
+        }
+        BT <-  t(Psi) %*% x1 %*% solve(sigma_error)
+        coef <- Q %*% BT %*% y
+        theta <- Psi %*% coef
+        fit <- x1 %*% theta
+        residuals <- y-fit
+        H <- t(BT) %*% Q %*% BT
+        gcv <- sum((y-fit)^2)/(n-sum(diag(H)))^2
+        res <- list(coef=drop(coef),lambda=lambda,GCV=gcv,fit=fit,
+                    theta=theta,residuals=residuals,degree=p,nknots=nknots,
+                    m=m,sigma_error=sigma_error)
+        class(res) <- "val"
+        res
+}
+
+
+```
+
+预测
+```{r}
+valpredict <- function(model,newx,newz){
+        if(class(model)!="val")
+                stop("the model must be varying-coffecient!")
+        n <- length(newx)
+        p <- model$degree
+        nknots <- model$nknots
+        df <- p+nknots
+        Psi <- bs(newz,df=df,degree = p)
+        Psi <- as.matrix(Psi[1:n,1:df])
+        theta <- Psi %*% model$coef
+        predict <- diag(newx) %*% theta
+        predict
+}
+```
+
+
+
+
+检验是否应该用变系数，原假设是常系数
+
+参数跟以上一致，需要注意的的是，这边的基函数是截断幂基函数（论文中证明了并没有影响），常用p=1就可以了。
+```{r}
+library(lme4)
+library(RLRsim)
+library(nlme)
+LRTval=function(X, Z, Y, p=1,nknots=20,df,sigma.output=diag(rep(1, length(Y)))){
+        n=length(Y)
+        x1 <- diag(X)
+        z1 <- rep(1,n)
+        for (i in 1:p){z1=cbind(z1, z^i)}
+        myknots = quantile(unique(z),seq(0,1,length=(nknots+2))[-c(1,(nknots+2))])
+        z2 <- outer(z, myknots, FUN="-")  
+        z3 <- z2*(z2>0) 
+        if(p>1) {z3=z3^p} 
+        A1 <- x1 %*% z1
+        A2 <- x1 %*% z3
+        Xnames = paste("X",1:ncol(A1),sep="") 
+        Znames = paste("Z",1:ncol(A2),sep="") 
+        fixed.model = as.formula(paste("DATA.temp ~ -1+",
+                                       paste(paste("X",1:ncol(A1),sep=""),collapse="+"))) 
+        fixed.model2 = as.formula(paste("DATA.temp ~ -1+",
+                                        paste(paste("X",1:(ncol(A1)-df),sep=""),collapse="+")))
+        random.model = as.formula(paste("~-1+",paste(paste("Z",1:ncol(A2),sep=""),collapse="+")))   
+
+        DATA.output = as.vector( sigma.output  %*% Y )
+        hat1 = sigma.output %*% A1 ; 
+        hat2 = sigma.output %*% A2
+
+        DATA.temp= DATA.output
+        colnames(hat1)=Xnames
+        colnames(hat2)=Znames
+        subject<-rep(1,n)
+        ALLDATA  = data.frame(cbind(subject,DATA.temp, hat1, hat2))
+        mA = lme(fixed=fixed.model, data=ALLDATA, 
+                 random=list(subject = pdIdent(random.model)), method="ML")
+        m0 = lm(fixed.model2, data=ALLDATA)
+        obs.LRT = as.numeric(2*(logLik(mA)-logLik(m0)))
+        pvalue = pchisq(obs.LRT,1,lower.tail = FALSE)
+        res <- list(LRT =obs.LRT,p.value = pvalue)
+        res
+}
+
+
+```
+
+
+#举个例子
+
+```{r}
+n=400
+z <- runif(n)
+v <- rnorm(n)
+x <- cumsum(v)  
+#error <- arima.sim(n=n,list(ar=c(0.5)),sd=1)
+theta=function(t){(t-0.25)^2}
+#theta=function(t){(0.25)^2}
+u <- rnorm(n)
+y <- x*theta(z)+u  #实际的y
+model <- val(x,z,y,p=3,nknots=20,lambda = 0.01) #指定lambda
+model <- val(x,z,y,p=3,nknots=20)    #不指定lambda
+model$lambda
+model$coef  #beta
+#model$theta #x的变系数，也就是theta(z)
+plot(theta(z),model$theta)
+
+#检验是否应该用这模型
+LRTval(x, z, y, p=1,nknots=20,df=1)
+
+
+#预测
+z2 <- runif(100)
+v2 <- rnorm(100)
+x2 <- cumsum(v2)
+pre<- valpredict(model,newx = x2,newz = z2)
+```
