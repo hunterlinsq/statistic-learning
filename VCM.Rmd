@@ -1,0 +1,268 @@
+---
+title: "VCM"
+author: "linsq"
+date: "2017年3月10日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+以下是会调用到但是不用发布的函数
+```{r}
+beta <- function(x,z,y,p,nknots,m,knots,lambda,sigma_error=diag(1,length(y)),Dm){
+        n <- length(y)
+        df1 <- nknots+p
+        Psi <- bs(z,knots = knots,degree = p)
+        Psi <- as.matrix(Psi[1:n,1:df1])
+        x1 <- diag(x)
+        coef <- solve(t(Psi) %*% x1 %*% solve(sigma_error) %*% x1 %*% Psi +
+                      lambda*(nknots^(2*m-1))*t(Dm)%*%(Dm)) %*%t(Psi) %*% x1 %*% solve(sigma_error) %*% y
+        coef
+        
+}
+
+valcv <- function(fold,x,z,y,p,nknots,m,knots,lambda,sigma_error=diag(1,length(y)),Dm){
+        df1 <- nknots+p
+        k = sample(rep(1:fold,length=n))
+        fit1 <- rep(NA,n)
+        for (j in 1:fold){
+                testset = (1:n)[k==j]
+                coef <- beta(x=x[-testset],z=z[-testset],y=y[-testset],
+                             p=p,nknots = nknots,m=m,knots=knots,lambda=lambda,Dm=Dm)
+                l <- length(x[testset])
+                NPsi <- bs(z[testset],df=df1,degree = p)
+                Npsi <- as.matrix(NPsi[1:l,1:df1])
+                Ntheta <- Npsi %*% coef
+                fit1[testset] <- diag(x[testset]) %*% Ntheta
+        }
+        mse <- mean((y-fit1)^2)
+        return(mse)
+}
+
+```
+
+
+
+
+## R Markdown
+假设$y_t=x_t \theta(z_t)= x_t \cdot (z_t-0.25)^2+u_t$,其中$x_t=x_{t-1}+v_t$即$x_t$非平稳,$y_t$和$z_t$平稳，$u_t,v_t \sim N(0,1)$
+
+也就是系数$\theta$是可变的，利用B样条估计各个变系数
+
+估计系数,因为目前拟合结果是随lambda单调的，所以先给定lambda
+
+参数说明：
+y：因变量；x：自变量；z：辅助变量               
+p：B样条的次数；nknots：选取的节点个数                    
+m：惩罚项阶数；lambda：惩罚项系数  
+cv=c("gcv","AIC","ocv","k-fold cv","MLE","REML"),选择最优lambda的方法            
+分别是按照gcv、aic、ocv和K折交叉验证来选，后两种方法还在开发中。                
+sigma_error：扰动项u的协差阵  
+knotsmethod=c("quantile,range"),样条取节点方法，"quantile"表示按数据的quantile取节点，"range"表示按数据的范围等距离取节点。
+
+
+```{r}
+require(splines)
+val <- function(x,z,y,p=3,nknots,m=2,lambda=NULL,cv,sigma_error=diag(1,length(y)),knotsmethod="quantile"){
+        if(any(is.na(x)) | any(is.na(z)) | any(is.na(y)))
+                stop("NAs in data!")
+        n <- length(y)
+        df1 <- nknots+p
+        if(knotsmethod=="quantile"){
+                Psi <- bs(z,df=df1,degree = p)
+                knot <- attr(Psi,"knots")
+        }else{
+                knot<- approx(range(z),n=(nknots+2))$y[-c(1,nknots+2)]
+                Psi<- bs(z,df=df1,knots = knot)
+        }
+        Psi <- as.matrix(Psi[1:n,1:df1])
+        
+        D <- diag(1,df1)
+        D[which(D==1)[-df1]+1] <- -1
+        Dm <- D
+        for(i in 1:(m-1)){Dm <- D %*% Dm}
+        Dm <- Dm[-(1:m),]
+        
+        X <- diag(x) %*% Psi
+        u <- svd(X)$u
+        A <- diag(svd(X)$d)
+        v <- svd(X)$v
+        M <- solve(A) %*% t(v) %*% (nknots^(2*m-1)*t(Dm) %*% Dm) %*% v %*% solve(A)
+        c <- eigen(M)$values;w <- eigen(M)$vectors
+        
+        if(is.null(lambda)){
+                lamb <- seq(-5,10,0.01)
+                crit <- rep(NA,length(lamb))
+                for(i in 1:length(lamb)){
+                        Q <- diag(lamb[i]/(lamb[i]+1/c))
+                        H <- u %*% t(u)- u%*%w %*% Q %*% t(u%*%w)
+                                        
+                        if(cv=="gcv"){
+                                crit[i] <- sum((y-H %*% y)^2)/(n-sum(diag(H)))^2
+                        }else if(cv=="ocv"){
+                                crit[i] <- sum((y-H %*% y)/(1-diag(H))^2)
+                        }else if(cv=="AIC"){
+                                H0 <- X %*% solve(t(X) %*% X) %*% t(X)
+                                var0 <- var(y-H0 %*% y)
+                                crit[i] <- sum((y-H %*% y)^2)/var0+2*sum(diag(H))-2*n*log(var0)-n*log(2*pi)
+                        }else if(cv=="MLE" | cv=="REML"){
+                                stop("This method is still under development, please use other methods. ")
+                        }else{
+                                k <- as.numeric(strsplit(cv,split = "-")[[1]][1])
+                                if(is.na(k)){
+                                        stop("Please choose the correct menthod!")
+                                }else{
+                                        warning("Using this method may cost more time, please wait a moment. 
+                                And because of the uncertainty of the grouping may lead to different optimal lambda")
+                                        }
+                                
+                                crit[i] <- valcv(fold=k,x=x,z=z,y=y,p=p,nknots=nknots,m=m,knots = knot,
+                                                lambda=lamb[i],sigma_error=diag(1,length(y)),Dm=Dm)
+                        }
+                }
+                lambda <- lamb[which.min(crit)]
+        }
+        
+        coef <- solve(t(X) %*% solve(sigma_error) %*% X +
+                              lambda*(nknots^(2*m-1))*t(Dm)%*%(Dm)) %*% t(X) %*% solve(sigma_error) %*% y
+        theta <- Psi %*% coef
+        fit <- diag(x) %*% theta
+        residuals <- y-fit
+        
+        H <- X %*%  solve(t(X) %*% solve(sigma_error) %*% X +
+                              lambda*(nknots^(2*m-1))*t(Dm)%*%(Dm)) %*% t(X) %*% solve(sigma_error) 
+        gcv <- sum((y-fit)^2)/(n-sum(diag(H)))^2
+        var0 <- var(y- X %*% solve(t(X) %*% X) %*% t(X) %*% y)
+        AIC <- sum((y-fit)^2)/var0+2*sum(diag(H))-2*n*log(var0)-n*log(2*pi)
+        R-square <- 1- sum((y-fit)^2)/((n-1)*var(y))
+        Adjusted_R^2 <- 1- (sum((y-fit)^2)/(n-nknots))/((n-1)*var(y)/(n-1))
+        pvalue <- LRTval(x, z, y,nknots=nknots)$p.value
+        
+        res <- list(coef=drop(coef),lambda=lambda,GCV=gcv,fit=fit,knots=knots,
+                    theta=theta,residuals=residuals,degree=p,nknots=nknots,
+                    m=m,sigma_error=sigma_error,R-square=R-square,Adjusted_R^2=Adjusted_R^2,
+                    test_pvalue <- pvalue)
+        class(res) <- "val"
+        res
+}
+
+
+
+```
+
+预测
+```{r}
+valpredict <- function(model,newx,newz){
+        if(class(model)!="val")
+                stop("the model must be varying-coffecient!")
+        n <- length(newx)
+        p <- model$degree
+        nknots <- model$nknots
+        df <- p+nknots
+        Psi <- bs(newz,df=df,degree = p)
+        Psi <- as.matrix(Psi[1:n,1:df])
+        theta <- Psi %*% model$coef
+        predict <- diag(newx) %*% theta
+        predict
+}
+```
+
+
+
+
+检验是否应该用变系数，原假设是常系数
+
+参数跟以上一致，需要注意的的是，这边的基函数是截断幂基函数（论文中证明了并没有影响），常用p=1就可以了。
+```{r}
+library(lme4)
+library(RLRsim)
+library(nlme)
+LRTval=function(X, Z, Y, p=1,nknots=20,df=1,sigma.output=diag(rep(1, length(Y)))){
+        n=length(Y)
+        x1 <- diag(X)
+        z1 <- rep(1,n)
+        for (i in 1:p){z1=cbind(z1, z^i)}
+        myknots = quantile(unique(z),seq(0,1,length=(nknots+2))[-c(1,(nknots+2))])
+        z2 <- outer(z, myknots, FUN="-")  
+        z3 <- z2*(z2>0) 
+        if(p>1) {z3=z3^p} 
+        A1 <- x1 %*% z1
+        A2 <- x1 %*% z3
+        Xnames = paste("X",1:ncol(A1),sep="") 
+        Znames = paste("Z",1:ncol(A2),sep="") 
+        fixed.model = as.formula(paste("DATA.temp ~ -1+",
+                                       paste(paste("X",1:ncol(A1),sep=""),collapse="+"))) 
+        fixed.model2 = as.formula(paste("DATA.temp ~ -1+",
+                                        paste(paste("X",1:(ncol(A1)-df),sep=""),collapse="+")))
+        random.model = as.formula(paste("~-1+",paste(paste("Z",1:ncol(A2),sep=""),collapse="+")))   
+
+        DATA.output = as.vector( sigma.output  %*% Y )
+        hat1 = sigma.output %*% A1 ; 
+        hat2 = sigma.output %*% A2
+
+        DATA.temp= DATA.output
+        colnames(hat1)=Xnames
+        colnames(hat2)=Znames
+        subject<-rep(1,n)
+        ALLDATA  = data.frame(cbind(subject,DATA.temp, hat1, hat2))
+        mA = lme(fixed=fixed.model, data=ALLDATA, 
+                 random=list(subject = pdIdent(random.model)), method="ML")
+        m0 = lm(fixed.model2, data=ALLDATA)
+        obs.LRT = as.numeric(2*(logLik(mA)-logLik(m0)))
+        pvalue = pchisq(obs.LRT,1,lower.tail = FALSE)
+        pvalue =ifelse(pvalue <1*10^-16,"<1e-16",pvalue)
+        res <- list(LRT =obs.LRT,p.value = pvalue)
+        res
+}
+
+
+```
+
+
+#举个例子
+
+```{r}
+n=500
+z <- runif(n)
+v <- rnorm(n)
+x <- cumsum(v)  
+theta=function(t){(t-0.25)^2}
+u <- rnorm(n)
+y <- x*theta(z)+u  #实际的y
+
+
+model <- val(x,z,y,p=3,nknots=20,lambda = 0.01) #指定lambda
+model <- val(x,z,y,p=3,nknots=20,cv="gcv")    #不指定lambda,根据gcv值选择最优lambda
+model$lambda
+model$coef  #beta
+
+
+model2 <- val(x,z,y,p=3,nknots=20,cv="AIC")   #根据AIC选择
+model2$lambda
+
+
+model3 <- val(x,z,y,p=3,nknots=20,cv="ocv")   #根据ocv选择
+model3$lambda
+
+model4 <- val(x,z,y,p=3,nknots=20,cv="5-fold cv")   #根据5折交叉验证选择
+model4$lambda
+#想用10折交叉验证的话就用cv=“10-fold cv”
+#耗时很长，不建议使用！！
+
+
+
+#model$theta #x的变系数，也就是theta(z)
+plot(theta(z),model$theta)
+
+#检验是否应该用这模型
+LRTval(x, z, y, p=1,nknots=20,df=1)
+
+
+#预测
+z2 <- runif(100)
+v2 <- rnorm(100)
+x2 <- cumsum(v2)
+pre<- valpredict(model,newx = x2,newz = z2)
+```
