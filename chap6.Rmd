@@ -1,0 +1,104 @@
+---
+title: "chapter6_excise"
+author: "linsq"
+date: "2017年4月1日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##小测验
+
+1.函数的3个组成部分是什么？
+
+ans：body():函数的内部代码；
+     formals():控制如何调用函数的参数列表；
+     environment():函数变量位置的地图。
+     
+2.下面代码的返回值是多少？
+```{r}
+y <- 10
+f1 <- function(x){
+        function(){
+                x+10
+        }
+}
+f1(1)()
+
+##11
+```
+
+3.如何写下面的代码，使其更具一般性？
+```{r}
+`+`(1,`*`(2,3))
+
+1+2*3
+```
+
+4.如何使下面的调用更易于理解？
+```{r}
+mean(,TRUE,x=c(1:10,NA))
+
+mean(x=c(1:10,NA),na.rm = TRUE)
+```
+
+5.调用下面的函数会出错吗？为什么会出错或者不会出错？
+```{r}
+f2 <- function(a,b){
+        a*10
+}
+f2(10,stop("This is an error!"))
+```
+
+ans:不会出错，因为函数body里并没有b的出现，但是下列会出错：
+```{r}
+f2 <- function(a,b){
+        force(b)
+        a*10
+}
+f2(10,stop("This is an error!"))
+```
+
+6.什么是中缀(infix)函数?如何编写中缀函数？什么是替换函数？如何编写替换函数？
+
+
+
+7.无论函数如何终止。我们都希望出现一个清理动作，使用哪个函数可以做到这一点？
+
+ans：on.exist()函数，其中的代码是在清理前都会执行的。
+
+
+##6.1.2练习
+
+1.使用什么函数来判断一个对象是不是函数？使用什么函数来判断一个函数是不是原函数？
+
+ans:用is.function()来判断是否是函数，
+
+2.下面的代码可以列出基础包中的所有函数。
+```{r}
+objs <- mget(ls("package:base"),inherits = TRUE)
+funs <- Filter(is.function,objs)
+```
+使用它来回答下面的问题：                
+a.哪个基础函数有最多的参数?              
+b.多少个基础函数美哟u函数？这些函数有哪些特别之处？             
+c.如何对这段代码进行修改以便找到所有的原函数？
+
+```{r}
+form <- lapply(funs,formals)
+numbers <- lapply(form,length)
+max(unlist(numbers))
+
+```
+
+
+3.函数的3个重要部分是什么？
+
+ans：body:函数的内部代码；formals():控制如何调用函数的参数列表；environment():函数变量位置的地图。
+   
+
+4.什么时候输出一个函数不会显示创建它所在的环境？
+
+
