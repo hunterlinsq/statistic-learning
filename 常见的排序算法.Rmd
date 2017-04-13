@@ -1,0 +1,111 @@
+---
+title: "常见的几种排序方法"
+author: "linsq"
+date: "2017年4月11日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+本文参照：算法导论
+
+
+##插入排序
+
+
+输入：n个数的一个序列$(a_1,a_2,\cdots,a_n)$.            输出：输入序列的有序排列$(a'_1,a'_2,\cdots,a'_n)$,满足$a'_1\leq a'_2 \leq \cdots \le a'_n$
+
+适用于：少量元素的排序。                
+工作方式：类似于排序一手扑克牌。开始时，我们的左手为空并且桌上的牌面向下。然后。我们每次从桌上拿走一张牌并将它插入左手中的正确位置。为了找到一张牌的正确位置，我们从右到左将它与以在手中的每张牌进行比较，拿在左手上的牌总是排序好的，原来的这些牌时桌上牌堆中顶部的牌。
+
+
+算法：对一个数组A[1,...,n]          
+INSERTION—SORT(A):              
+  for j=2 to A.length           
+      key=A[j]          
+      //Insert A[j] into the sorted sequence A[1,...,j-1]               
+      i=j-1             
+      while i>0 and A[j]>key            
+            A[i+1]=A[i]         
+            i=i-1               
+      A[i+1]=key
+
+
+R代码
+```{r}
+a <- c(31,41,59,26,41,58)
+
+
+insertionsort <- function(x){
+        for(j in 2:length(x)){
+                key <- x[j]
+                i <- j-1
+                while(i>0){
+                        if(x[i]>key){
+                                x[i+1] <- x[i]
+                                x[i] <- key
+                        }
+                        i=i-1
+                }
+        }
+        return(x)
+}
+
+insertionsort(a)
+```
+注意：如果完全按照伪代码来写，由于R中序列是从1而不是从0开始的，在当i=0时判断i>0 and A[j]>key会报错。但是目前这个代码遍历的次数会更多，无法即时终止。
+
+插入排序时间复杂度最好为O(n),最差为O(n^2),平均情况为O(n^2),空间复杂度为O(1)，结果稳定。
+
+
+##希尔算法
+
+希尔(shell)算法是插入排序的一种,也称缩小增量排序，是直接插入排序的改进版本。其基本思想是将数据按下标(也就是位置)的一定增量分组，对每组使用直接插入算法排序；随着增量逐渐减少，每组包含的数据也就越来越多，当增量减至1时，整个数据恰被  分为一组，算法停止。            
+一般的初次取序列的一半为增量，以后每次减半，直到增量为1.
+
+算法：          
+SHELLSROT(A):           
+  increment=A.length/2          
+  while increment>=1            
+      for i=1 to increment              
+          do insertsort on (i,i+increment,i+2increment,...)             
+      increment=increment/2
+              
+
+```{r}
+a <- c(31,41,59,26,41,58)
+
+shellsort <- function(x){
+        n <- length(x)
+        incre <- floor(n/2)
+        while(incre>=1){
+                for(i in 1:incre){
+                        j=i+incre
+                        while(j<=n){
+                                key <- x[j]
+                                m <- j-incre
+                                while(m>0){
+                                        if(x[m]>key){
+                                                x[m+incre] <- x[m]
+                                                x[m] <- key
+                                        }
+                                        m <- m-incre
+                                }
+                                j <- j+incre
+                        }
+                }
+                incre <- floor(incre/2)
+        }
+        return(x)
+}
+
+shellsort(a)
+```
+
+希尔算法排序的时间复杂度在最好情况下为O(n),最差为O(n^2),平均情况为O(n^1.5),直接插入排序快，空间复杂度为O(1)。但是不稳定。
+
+
+
+
