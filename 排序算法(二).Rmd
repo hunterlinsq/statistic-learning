@@ -27,8 +27,8 @@ R代码：
 bubblesort <- function(x){
         n <- length(x)
         for(i in 1:(n-1)){
-                for(j in (i+1):n){
-                        if(x[i]>=x[j]){
+                for(j in (i+1):n){
+z                        if(x[i]>=x[j]){
                                 m <- x[j]
                                 x[j]=x[i]
                                 x[i]=m
@@ -39,7 +39,6 @@ bubblesort <- function(x){
 }
 
 bubblesort(a)
-
 ```
 
 冒泡排序时间复杂度最好为O(n),最差为O(n^2),平均情况为O(n^2),空间复杂度为O(1)，结果稳定。
@@ -87,4 +86,4 @@ fastsort(a,1,length(a))
 
 ```
 
-快速排序的时间复杂度在最好情况下为O(n)，最差情况为O(n^2),平均情况为O(nlog_2(n))，时间复杂度为O(1)，结果不稳定。
+快速排序的时间复杂度在最好情况下为O(n)，最差情况为O(n^2),平均情况为O(nlog_2(n))，时间复杂度为O(1)，这是不稳定的排序方法。
